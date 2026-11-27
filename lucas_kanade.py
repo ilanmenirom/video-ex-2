@@ -216,27 +216,40 @@ def lucas_kanade_optical_flow(I1: np.ndarray,
           image resize (using cv2.resize) to the next pyramid level resolution
           and scale u and v accordingly.
     """
-    """INSERT YOUR CODE HERE.
-        Replace image_warp with something else.
-        """
-    h_factor = int(np.ceil(I1.shape[0] / (2 ** (num_levels - 1 + 1))))
-    w_factor = int(np.ceil(I1.shape[1] / (2 ** (num_levels - 1 + 1))))
-    IMAGE_SIZE = (w_factor * (2 ** (num_levels - 1 + 1)),
-                  h_factor * (2 ** (num_levels - 1 + 1)))
-    if I1.shape != IMAGE_SIZE:
-        I1 = cv2.resize(I1, IMAGE_SIZE)
-    if I2.shape != IMAGE_SIZE:
-        I2 = cv2.resize(I2, IMAGE_SIZE)
-    # create a pyramid from I1 and I2
-    pyramid_I1 = build_pyramid(I1, num_levels)
-    pyarmid_I2 = build_pyramid(I2, num_levels)
-    # start from u and v in the size of smallest image
-    u = np.zeros(pyarmid_I2[-1].shape)
-    v = np.zeros(pyarmid_I2[-1].shape)
-    """INSERT YOUR CODE HERE.
-       Replace u and v with their true value."""
-    u = np.zeros(I1.shape)
-    v = np.zeros(I1.shape)
+    original_height, original_width = I1.shape
+    factor = 2 ** num_levels
+    height = int(np.ceil(original_height / factor)) * factor
+    width = int(np.ceil(original_width / factor)) * factor
+    image_size = (width, height)
+    I1_float, I2_float = I1.astype(np.float64), I2.astype(np.float64)
+    if I1.shape != (height, width):
+        I1_float = cv2.resize(I1.astype(np.float64), image_size)
+        I2_float = cv2.resize(I2.astype(np.float64), image_size)
+
+    pyramid_I1, pyramid_I2 = build_pyramid(I1_float, num_levels), build_pyramid(I2_float, num_levels)
+    u, v = np.zeros_like(pyramid_I1[-1]), np.zeros_like(pyramid_I1[-1])
+
+    # Run L-K iterations per level, starting from top level
+    for level in range(num_levels, -1, -1):
+        reference, source = pyramid_I1[level], pyramid_I2[level]
+        # Preprocess (resize):
+        if u.shape != reference.shape:
+            next_height, next_width = reference.shape
+            scale_x, scale_y = next_width / u.shape[1], next_height / v.shape[0]
+            u = cv2.resize(u, (next_width, next_height)) * scale_x
+            v = cv2.resize(v, (next_width, next_height)) * scale_y
+
+        # Run L-K Iterations:
+        for _ in range(max_iter):
+            warped = warp_image(source, u, v)
+            du, dv = lucas_kanade_step(reference, warped, window_size)
+            u += du
+            v += dv
+
+    if u.shape != (original_height, original_width):
+        u = cv2.resize(u, (original_width, original_height)) * (original_width / width)
+        v = cv2.resize(v, (original_width, original_height)) * (original_height / height)
+
     return u, v
 
 
