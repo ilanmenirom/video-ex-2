@@ -64,7 +64,11 @@ def build_pyramid(image: np.ndarray, num_levels: int) -> list[np.ndarray]:
     We use a slightly different decimation process from this function.
     """
     pyramid = [image.copy()]
-    """INSERT YOUR CODE HERE."""
+    for _ in range(num_levels):
+        prev_img = pyramid[-1]
+        filtered = signal.convolve2d(prev_img, PYRAMID_FILTER, boundary='symm', mode='same')
+        decimated = filtered[::2, ::2].copy()
+        pyramid.append(decimated)
     return pyramid
 
 
@@ -104,11 +108,25 @@ def lucas_kanade_step(I1: np.ndarray,
         original image. dv encodes the optical flow parameters in rows and du
         in columns.
     """
-    """INSERT YOUR CODE HERE.
-    Calculate du and dv correctly.
-    """
-    du = np.zeros(I1.shape)
-    dv = np.zeros(I1.shape)
+    
+    Ix = signal.convolve2d(I2.astype(np.float64), X_DERIVATIVE_FILTER, mode='same')
+    Iy = signal.convolve2d(I2.astype(np.float64), Y_DERIVATIVE_FILTER, mode='same')
+    It = I2.astype(np.float64) - I1.astype(np.float64)
+    du = np.zeros_like(I1, dtype=np.float64)
+    dv = np.zeros_like(I1, dtype=np.float64)
+    half_size = window_size // 2
+    height, width = I1.shape
+
+    for row in range(half_size, height - half_size):
+        for col in range(half_size, width - half_size):
+            region = (slice(row - half_size, row + half_size + 1), slice(col - half_size, col + half_size + 1))
+            A = np.column_stack((Ix[region].ravel(), Iy[region].ravel()))
+            b = -It[region].ravel()
+            shift, _, rank, _ = np.linalg.lstsq(A, b, rcond=None)
+            if rank == 2 and np.all(np.isfinite(shift)):
+                du[row, col], dv[row, col] = shift
+            # Else - du & dv remain 0
+    
     return du, dv
 
 
@@ -141,10 +159,22 @@ def warp_image(image: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray:
     Returns:
         image_warp: np.ndarray. Warped image.
     """
-    image_warp = image.copy()
-    """INSERT YOUR CODE HERE.
-    Replace image_warp with something else.
-    """
+    height, width = image.shape
+    u_float, v_float = u.astype(np.float64), v.astype(np.float64)
+    if u_float.shape != image.shape:
+        scale_x = width / u_float.shape[1]
+        u_float = cv2.resize(u_float, (width, height)) * scale_x
+    if v_float.shape != image.shape:
+        scale_y = height / v_float.shape[0]
+        v_float = cv2.resize(v_float, (width, height)) * scale_y
+
+    columns, rows = np.meshgrid(np.arange(width), np.arange(height))
+    points = np.column_stack((columns.ravel(), rows.ravel()))
+    samples = np.column_stack(((columns + u_float).ravel(), (rows + v_float).ravel()))
+    image_warp = griddata(points, image.ravel(), samples, method='linear', fill_value=np.nan)
+    image_warp = image_warp.reshape(image.shape)
+    holes = np.isnan(image_warp)
+    image_warp[holes] = image[holes]
     return image_warp
 
 
