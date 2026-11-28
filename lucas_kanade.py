@@ -6,8 +6,8 @@ from scipy.interpolate import griddata
 
 
 # FILL IN YOUR ID
-ID1 = 123456789
-ID2 = 987654321
+ID1 = 206784514
+ID2 = 204326250
 
 
 PYRAMID_FILTER = 1.0 / 256 * np.array([[1, 4, 6, 4, 1],
@@ -303,8 +303,59 @@ def lucas_kanade_video_stabilization(input_video_path: str,
        (7) Do not forget to gracefully close all VideoCapture and to destroy
        all windows.
     """
-    """INSERT YOUR CODE HERE."""
-    pass
+    capture = cv2.VideoCapture(input_video_path)
+    writer = None  # writer stays None for cases the input video isn't read properly
+    try:
+        if not capture.isOpened():
+            raise ValueError(f"Cannot open input video: {input_video_path}")
+        parameters = get_video_parameters(capture)
+        success, first_frame = capture.read()
+        if not success:
+            raise ValueError("Input video capture read failed")
+        first_frame = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)  # convert to grayscale
+        original_height, original_width = first_frame.shape
+        output_size = (original_width, original_height)
+        writer = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*'XVID'), capture.get(cv2.CAP_PROP_FPS), output_size, isColor=False)
+        writer.write(first_frame)  # first output frame is the same as input
+
+        factor = 2 ** num_levels
+        height = int(np.ceil(original_height / factor)) * factor
+        width = int(np.ceil(original_width / factor)) * factor
+        working_size = (width, height)
+        prev_frame = cv2.resize(first_frame, working_size).astype(np.float64)
+        half = window_size // 2
+        valid = (slice(half, height - half), slice(half, width - half))
+        if height <= 2 * half or width <= 2 * half:
+            raise ValueError("Video frames are smaller than the LK window")
+        u = np.zeros((height, width))
+        v = np.zeros((height, width))
+        total_u, total_v = 0.0, 0.0
+
+        for _ in tqdm(range(1, parameters['frame_count']), desc="Stabilizing video"):
+            success, curr_frame = capture.read()
+            # Frame preprocess:
+            curr_frame = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
+            curr_frame = cv2.resize(curr_frame, working_size).astype(np.float64)  
+            du, dv = lucas_kanade_optical_flow(
+                prev_frame, curr_frame, window_size, max_iter, num_levels)
+            # Mean translation per frame; accumulate in frame 1 coordinates.
+            total_u += float(np.mean(du[valid]))
+            total_v += float(np.mean(dv[valid]))
+            u[valid] = total_u
+            v[valid] = total_v
+            stabilized = warp_image(curr_frame, u, v)
+            if stabilized.shape != first_frame.shape:
+                stabilized = cv2.resize(stabilized, output_size)
+            
+            writer.write(np.clip(stabilized, 0, 255).astype(np.uint8))  # write stabilized frame
+            prev_frame = curr_frame  # next stabilization is relative to this frame
+
+    finally:
+        # Release captures and windows
+        capture.release()
+        if writer is not None:
+            writer.release()
+        cv2.destroyAllWindows()
 
 
 def faster_lucas_kanade_step(I1: np.ndarray,
