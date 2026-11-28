@@ -223,3 +223,7 @@ __marimo__/
 .streamlit/secrets.toml
 /~$2*
 /.vscode/
+/river_results/
+*.tmp
+*_stabilized_video.avi
+*_stats.json
